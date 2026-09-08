@@ -27,3 +27,9 @@ output "bucket_name" {
   description = "The name of the Yandex Object Storage bucket."
   value       = yandex_storage_bucket.this.bucket
 }
+
+output "service_account_static_access_key" {
+  description = "The path to Account Service Access Key file for Yandex Cloud."
+  value       = var.key_file 
+  sensitive   = true
+}
