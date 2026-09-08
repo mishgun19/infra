@@ -1,5 +1,14 @@
+locals {
+  boot_disk_name = "${var.name_prefix}-boot-disk"
+  linux_vm_name  = "${var.name_prefix}-linux-vm"
+  vpc_network_name = "${var.name_prefix}-private"
+  ydb_serverless_name = "${var.name_prefix}-ydb-serverless"
+  bucket_sa_name      = "${var.name_prefix}-bucker-sa"
+  bucket_name         = "${var.name_prefix}-terraform-bucket-${random_string.bucket_name.result}"
+}
+
 resource "yandex_vpc_network" "this" {
-  name = "${var.name_prefix}-private"
+  name = local.vpc_network_name
 }
 
 resource "yandex_vpc_subnet" "private" {
@@ -10,7 +19,7 @@ resource "yandex_vpc_subnet" "private" {
 }
 
 resource "yandex_compute_disk" "boot_disk" {
-  name     = "${var.name_prefix}-boot-disk"
+  name     = local.boot_disk_name
   zone     = var.zone
   image_id = var.image_id
 
@@ -19,10 +28,10 @@ resource "yandex_compute_disk" "boot_disk" {
 }
 
 resource "yandex_compute_instance" "this" {
-  name                     = "${var.name_prefix}-linux-vm"
+  name                      = local.linux_vm_name
   allow_stopping_for_update = true
-  platform_id              = var.instance_resources.platform_id
-  zone                     = var.zone
+  platform_id               = var.instance_resources.platform_id
+  zone                      = var.zone
 
   resources {
     cores  = var.instance_resources.cores
@@ -39,12 +48,12 @@ resource "yandex_compute_instance" "this" {
 }
 
 resource "yandex_ydb_database_serverless" "this" {
-  name        = "${var.name_prefix}-ydb-serverless"
+  name        = local.ydb_serverless_name
   location_id = "ru-central1"
 }
 
 resource "yandex_iam_service_account" "bucket" {
-  name = "${var.name_prefix}-bucket-sa"
+  name = local.bucket_sa_name
 }
 
 resource "yandex_resourcemanager_folder_iam_member" "storage_editor" {
@@ -59,7 +68,7 @@ resource "yandex_iam_service_account_static_access_key" "this" {
 }
 
 resource "yandex_storage_bucket" "this" {
-  bucket     = "bucket-${random_string.bucket_name.result}"
+  bucket     = local.bucket_name
   access_key = yandex_iam_service_account_static_access_key.this.access_key
   secret_key = yandex_iam_service_account_static_access_key.this.secret_key
 
