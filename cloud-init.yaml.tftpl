@@ -1,17 +1,24 @@
+#cloud-config
 datasource:
   Ec2:
     strict_id: false
 ssh_pwauth: no
-ssh_authorized_keys:
-  - /root/.ssh/id_rsa.pub
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${file("/root/.ssh/id_rsa.pub")}
+
+ssh_pwauth: no
 package_update: false
 package_upgrade: false
 packages:
   - nginx
 runcmd:
   - |
-    sudo tee a /var/www/html/index.nginx-rhel.html > /dev/null <<'EOF'
-        <!doctype html>
+    sudo tee a /var/www/html/index.html > /dev/null <<'EOF'
+    <!doctype html>
     <html>
     <head>
         <meta charset="utf-8">
