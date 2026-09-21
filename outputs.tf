@@ -1,16 +1,33 @@
-output "boot_disk_id" {
+output "boot_disk_ids" {
   description = "The ID of the boot disk created for the instance."
-  value       = yandex_compute_disk.boot_disk.id
+  value       = {
+    for disk in yandex_compute_disk.boot_disk :
+    disk.name => disk.id
+  }
 }
 
-output "instance_id" {
-  description = "The ID of the Yandex Compute instance."
-  value       = yandex_compute_instance.this.id
+output "instance_ids" {
+ description = "The ID of the Yandex Compute instance."
+  value      = {
+    for instance in yandex_compute_instance.this :
+    instance.name => instance.id
+  }
 }
 
-output "subnet_id" {
+output "subnet_ids" {
   description = "The ID of the VPC subnet used by the Yandex Compute instance."
-  value       = yandex_vpc_subnet.private.id
+  value       = {
+    for subnet in yandex_vpc_subnet.private :
+    subnet.name => subnet.id
+  }
+}
+
+output "instance_public_ip_addresses" {
+  description = "The IP addresses of the instances"
+  value = {
+    for address in yandex_vpc_address.this :
+    address.name => address.external_ipv4_address[0].address
+  }
 }
 
 output "ydb_id" {
@@ -34,7 +51,24 @@ output "service_account_static_access_key" {
   sensitive   = true
 }
 
-output "instance_public_ip_address" {
-  description = "The external IP address of the instance."
-  value       = yandex_compute_instance.this.network_interface.0.nat_ip_address
+
+output "prefix" {
+  value = var.name_prefix == "project-dev" ? "True" : "False"
 }
+
+output "name" {
+  value = [for k in yandex_compute_instance.this:
+    "${k.name} is vm of klaster."
+  ]
+}
+
+output "server" {
+  value = [for k, v in var.server:
+  "${k} has ${v}"
+  ]
+}
+
+output "in" {
+  value = var.instance_resources
+}
+
