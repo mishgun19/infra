@@ -7,9 +7,9 @@ locals {
   bucket_name         = var.bucket_name != null ? var.bucket_name : "${var.name_prefix}-terraform-bucket-${random_string.bucket_name.result}"
 }
 
-resource "yandex_vpc_network" "this" {
-  name = local.vpc_network_name
-}
+//resource "yandex_vpc_network" "this" {
+//  name = local.vpc_network_name
+//}
 
 resource "yandex_vpc_address" "this" {
   for_each = var.zones
@@ -20,13 +20,28 @@ resource "yandex_vpc_address" "this" {
   }
 }
 
-resource "yandex_vpc_subnet" "private" {
-  for_each = var.zones
+//resource "yandex_vpc_subnet" "private" {
+//  for_each = var.zones
+//
+//  zone = each.value
+//  name = keys(var.subnets)[index(tolist(var.zones), each.value)]
+//  v4_cidr_blocks = var.subnets[each.value]
+//  network_id = yandex_vpc_network.this.id
+//}
 
-  zone = each.value
-  name = keys(var.subnets)[index(tolist(var.zones), each.value)]
-  v4_cidr_blocks = var.subnets[each.value]
-  network_id = yandex_vpc_network.this.id
+module "net" {
+  source = "github.com/terraform-yc-modules/terraform-yc-vpc.git?ref=19a9893f25b2536cea3c9c15c180c905ea37bf9c"
+
+  network_name = local.vpc_network_name
+  create_sg    = false
+
+  public_subnets = [
+    for zone in var.zones : {
+      name          = zone
+      zone          = zone
+      v4_cidr_blocks = var.subnets[zone]
+    }
+  ]
 }
 
 resource "yandex_compute_disk" "secondary_disk_a" {
@@ -96,7 +111,12 @@ resource "yandex_compute_instance" "this" {
   }
 
   network_interface {
-    subnet_id      = yandex_vpc_subnet.private[each.value].id
+    //subnet_id      = yandex_vpc_subnet.private[each.value].id
+
+    subnet_id = {
+      for subnet in module.net.public_subnets :
+      subnet.zone => subnet.subnet_id
+    }[each.value]
     nat            = true
     nat_ip_address = yandex_vpc_address.this[each.value].external_ipv4_address[0].address
   }
@@ -104,7 +124,7 @@ resource "yandex_compute_instance" "this" {
   metadata = {
     user-data = templatefile("cloud-init.yaml.tftpl", {
       ydb_connect_string = yandex_ydb_database_serverless.this.ydb_full_endpoint,
-      bucket_domain_name = yandex_storage_bucket.this.bucket_domain_name
+      bucket_domain_name = module.s3.bucket_domain_name
     })
   }
 }
@@ -114,28 +134,34 @@ resource "yandex_ydb_database_serverless" "this" {
   location_id = "ru-central1"
 }
 
-resource "yandex_iam_service_account" "bucket" {
-  name = local.bucket_sa_name
-}
+module "s3" {
+  source = "github.com/terraform-yc-modules/terraform-yc-s3.git?ref=9fc2f832875aefb6051a2aa47b5ecc9a7ea8fde5" # Commit hash for 1.0.2
 
-resource "yandex_resourcemanager_folder_iam_member" "storage_editor" {
-  folder_id = var.folder_id 
-  role      = "storage.editor"
-  member    = "serviceAccount:${yandex_iam_service_account.bucket.id}"
-}
+  bucket_name = local.bucket_name
+} 
 
-resource "yandex_iam_service_account_static_access_key" "this" {
-  service_account_id = yandex_iam_service_account.bucket.id
-  description        = "static access key for object storage"
-}
+//resource "yandex_iam_service_account" "bucket" {
+//  name = local.bucket_sa_name
+//}
 
-resource "yandex_storage_bucket" "this" {
-  bucket     = local.bucket_name
-  access_key = yandex_iam_service_account_static_access_key.this.access_key
-  secret_key = yandex_iam_service_account_static_access_key.this.secret_key
+//resource "yandex_resourcemanager_folder_iam_member" "storage_editor" {
+//  folder_id = var.folder_id 
+//  role      = "storage.editor"
+//  member    = "serviceAccount:${yandex_iam_service_account.bucket.id}"
+//}
 
-  depends_on = [ yandex_resourcemanager_folder_iam_member.storage_editor]
-}
+//resource "yandex_iam_service_account_static_access_key" "this" {
+//  service_account_id = yandex_iam_service_account.bucket.id
+//  description        = "static access key for object storage"
+//}
+
+//resource "yandex_storage_bucket" "this" {
+//  bucket     = local.bucket_name
+//  access_key = yandex_iam_service_account_static_access_key.this.access_key
+//  secret_key = yandex_iam_service_account_static_access_key.this.secret_key
+//
+//  depends_on = [ yandex_resourcemanager_folder_iam_member.storage_editor]
+//}
 
 resource "random_string" "bucket_name" {
   length  = 8
@@ -146,7 +172,7 @@ resource "random_string" "bucket_name" {
 resource "yandex_mdb_mysql_cluster" "this" {
   for_each = var.zones
 
-  network_id = yandex_vpc_network.this.id
+  network_id = module.net.vpc_id
   name = "mysql-cluster"
   environment = "PRESTABLE"
   version = "8.0"
@@ -159,12 +185,17 @@ resource "yandex_mdb_mysql_cluster" "this" {
 
   host {
     zone = each.value
-    subnet_id = yandex_vpc_subnet.private[each.value].id
+    //subnet_id = module.net.public_subnets[each.value].id
+
+    subnet_id = {
+      for cidr, s in module.net.public_subnets :
+      s.zone => s.subnet_id
+    }[each.value]
   }
 }
 
 resource "yandex_vpc_security_group" "this" {
-  network_id = yandex_vpc_network.this.id
+  network_id = module.net.vpc_id
 
   dynamic "ingress" {
     for_each = var.ingress_rule
@@ -200,4 +231,30 @@ resource "yandex_mdb_mysql_user" "user" {
   }
 
   depends_on = [ yandex_mdb_mysql_database.database ]
+}
+
+resource "time_sleep" "wait_120_seconds" {
+  create_duration = "120s"
+
+  depends_on = [ yandex_compute_instance.this ]
+}
+
+resource "yandex_compute_snapshot" "initial" {
+  for_each = yandex_compute_disk.boot_disk
+
+  name = "${each.value.name}-initial"
+  source_disk_id = each.value.id
+
+  depends_on = [ time_sleep.wait_120_seconds ]
+}
+
+resource "terraform_data" "get_serial_output" {
+  for_each = yandex_compute_instance.this
+
+  provisioner "local-exec" {
+    //command = "yc compute instance get-serial-port-output --id ${each.value.id} --folder-id ${var.folder_id} > serial_output_${each.value.name}.txt"
+    command = "${each.value.id} --folder-id ${var.folder_id} > serial_output_${each.value.name}.txt"
+  }
+
+  depends_on = [ time_sleep.wait_120_seconds ]
 }

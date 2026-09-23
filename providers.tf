@@ -20,3 +20,11 @@ provider "yandex" {
 provider "random" {
 
 }
+
+provider "aws" {
+  skip_region_validation      = true
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+  access_key                  = "mock_access_key"
+  secret_key                  = "sock_secret_key"
+}
